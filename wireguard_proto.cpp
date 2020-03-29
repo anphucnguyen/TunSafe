@@ -978,7 +978,7 @@ bool WgPeer::ParseExtendedHandshake(WgKeypair *kp, const uint8 *data, size_t dat
     return false;
 
   if (WITH_BOOLEAN_FEATURES && WITH_SHORT_MAC)
-    kp->auth_tag_length = (kp->enabled_features[WG_FEATURE_ID_SHORT_MAC] ? 8 : CHACHA20POLY1305_AUTHTAGLEN);
+    kp->auth_tag_length = (kp->enabled_features[WG_FEATURE_ID_SHORT_MAC] ? 8 : CHACHA20POLY1305_AUTHTAG_SIZE);
 
   if (WITH_CIPHER_SUITES && kp->cipher_suite >= EXT_CIPHER_SUITE_AES128_GCM && kp->cipher_suite <= EXT_CIPHER_SUITE_AES256_GCM) {
 #if WITH_AESGCM
@@ -1004,13 +1004,13 @@ WgKeypair *WgPeer::CreateNewKeypair(bool is_initiator, const uint8 chaining_key[
   memset(kp, 0, offsetof(WgKeypair, replay_detector));
   kp->is_initiator = is_initiator;
   kp->remote_key_id = remote_key_id;
-  kp->auth_tag_length = CHACHA20POLY1305_AUTHTAGLEN;
+  kp->auth_tag_length = CHACHA20POLY1305_AUTHTAG_SIZE;
   
   first_key = kp->send_key, second_key = kp->recv_key;
   if (!is_initiator)
     std::swap(first_key, second_key);
   blake2s_hkdf(first_key, sizeof(kp->send_key), second_key, sizeof(kp->recv_key), 
-               kp->auth_tag_length != CHACHA20POLY1305_AUTHTAGLEN ? (uint8*)kp->compress_mac_keys : NULL, 32, 
+               kp->auth_tag_length != CHACHA20POLY1305_AUTHTAG_SIZE ? (uint8*)kp->compress_mac_keys : NULL, 32, 
                NULL, 0, chaining_key, WG_HASH_LEN);
 
   if (!is_initiator) {

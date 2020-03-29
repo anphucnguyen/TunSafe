@@ -129,8 +129,8 @@ TcpPacketHandler::TcpPacketHandler(SimplePacketPool *packet_pool, WgPacketObfusc
      obfuscation_mode_(kObfuscationMode_None) {
 
   if (obfuscator->enabled() && obfuscator->obfuscate_tcp() != TcpPacketHandler::kObfuscationMode_None) {
-    memcpy(encryptor_.buf, obfuscator->key(), CHACHA20POLY1305_KEYLEN);
-    memcpy(decryptor_.buf, obfuscator->key(), CHACHA20POLY1305_KEYLEN);
+    memcpy(encryptor_.buf, obfuscator->key(), CHACHA20POLY1305_KEY_SIZE);
+    memcpy(decryptor_.buf, obfuscator->key(), CHACHA20POLY1305_KEY_SIZE);
     obfuscation_mode_ = obfuscator->obfuscate_tcp() != TcpPacketHandler::kObfuscationMode_Unspecified ? obfuscator->obfuscate_tcp() :
         (is_incoming ? TcpPacketHandler::kObfuscationMode_Autodetect : TcpPacketHandler::kObfuscationMode_Encrypted);
     read_state_ = (obfuscation_mode_ == kObfuscationMode_Encrypted) ? READ_CRYPTO_HEADER : READ_PACKET_HEADER;
@@ -156,7 +156,7 @@ enum {
 };
 
 static void SetChachaStreamingKey(chacha20_streaming *chacha, const uint8 *key, size_t key_len) {
-  blake2s(chacha->buf, CHACHA20POLY1305_KEYLEN, key, key_len, chacha->buf, CHACHA20POLY1305_KEYLEN);
+  blake2s(chacha->buf, CHACHA20POLY1305_KEY_SIZE, key, key_len, chacha->buf, CHACHA20POLY1305_KEY_SIZE);
   chacha20_streaming_init(chacha, chacha->buf);
 }
 

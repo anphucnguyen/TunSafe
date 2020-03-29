@@ -422,7 +422,7 @@ WireguardProcessor::PacketResult WireguardProcessor::WriteAndEncryptPacketToUdp_
 
   // Ensure packet will fit including the biggest padding
   if (peer->data_endpoint_.sin.sin_family == 0 ||
-      size > kPacketCapacity - 15 - CHACHA20POLY1305_AUTHTAGLEN)
+      size > kPacketCapacity - 15 - CHACHA20POLY1305_AUTHTAG_SIZE)
     goto getout_discard;
 
   if ((keypair = peer->curr_keypair_) == NULL ||

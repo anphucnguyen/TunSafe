@@ -137,7 +137,7 @@ SAFEBUFFERS static void chacha20_block_generic(struct chacha20_ctx *ctx, uint32 
 	++ctx->state[12];
 }
 
-SAFEBUFFERS static void hchacha20_generic(uint8 derived_key[CHACHA20POLY1305_KEYLEN], const uint8 nonce[16], const uint8 key[CHACHA20POLY1305_KEYLEN])
+SAFEBUFFERS static void hchacha20_generic(uint8 derived_key[CHACHA20POLY1305_KEY_SIZE], const uint8 nonce[16], const uint8 key[CHACHA20POLY1305_KEY_SIZE])
 {
 	uint32 *out = (uint32 *)derived_key;
 	uint32 x[] = {
@@ -159,7 +159,7 @@ SAFEBUFFERS static void hchacha20_generic(uint8 derived_key[CHACHA20POLY1305_KEY
 	out[7] = ToLE32(x[15]);
 }
 
-static inline void hchacha20(uint8 derived_key[CHACHA20POLY1305_KEYLEN], const uint8 nonce[16], const uint8 key[CHACHA20POLY1305_KEYLEN])
+static inline void hchacha20(uint8 derived_key[CHACHA20POLY1305_KEY_SIZE], const uint8 nonce[16], const uint8 key[CHACHA20POLY1305_KEY_SIZE])
 {
 #if defined(ARCH_CPU_X86_64) && defined(COMPILER_MSVC) && CHACHA20_WITH_ASM
 	if (X86_PCAP_SSSE3) {
@@ -517,7 +517,7 @@ SAFEBUFFERS static void poly1305_finish(struct poly1305_ctx *ctx, uint8 mac[16])
 
 static const uint8 pad0[16] = { 0 };
 
-SAFEBUFFERS static FORCEINLINE void poly1305_getmac(const uint8 *ad, size_t ad_len, const uint8 *src, size_t src_len, const uint8 key[POLY1305_KEY_SIZE], uint8 mac[CHACHA20POLY1305_AUTHTAGLEN]) {
+SAFEBUFFERS static FORCEINLINE void poly1305_getmac(const uint8 *ad, size_t ad_len, const uint8 *src, size_t src_len, const uint8 key[POLY1305_KEY_SIZE], uint8 mac[CHACHA20POLY1305_AUTHTAG_SIZE]) {
   uint64 len[2];
   struct poly1305_ctx poly1305_state;
 
@@ -537,7 +537,7 @@ struct ChaChaState {
   uint8 block0[CHACHA20_BLOCK_SIZE];
 };
 
-static inline void InitializeChaChaState(ChaChaState *st, const uint8 key[CHACHA20POLY1305_KEYLEN], uint64 nonce) {
+static inline void InitializeChaChaState(ChaChaState *st, const uint8 key[CHACHA20POLY1305_KEY_SIZE], uint64 nonce) {
   uint64 le_nonce = ToLE64(nonce);
   WriteLE64((uint8*)st, 0x3320646e61707865);
   WriteLE64((uint8*)st + 8, 0x6b20657479622d32);
@@ -560,8 +560,8 @@ static inline void InitializeChaChaState(ChaChaState *st, const uint8 key[CHACHA
 
 SAFEBUFFERS void poly1305_get_mac(const uint8 *src, size_t src_len,
                      const uint8 *ad, const size_t ad_len,
-                     const uint64 nonce, const uint8 key[CHACHA20POLY1305_KEYLEN],
-                     uint8 mac[CHACHA20POLY1305_AUTHTAGLEN]) {
+                     const uint64 nonce, const uint8 key[CHACHA20POLY1305_KEY_SIZE],
+                     uint8 mac[CHACHA20POLY1305_AUTHTAG_SIZE]) {
   ChaChaState st;
 
   InitializeChaChaState(&st, key, nonce);
@@ -572,7 +572,7 @@ SAFEBUFFERS void poly1305_get_mac(const uint8 *src, size_t src_len,
 
 SAFEBUFFERS void chacha20poly1305_encrypt(uint8 *dst, const uint8 *src, const size_t src_len,
 					      const uint8 *ad, const size_t ad_len,
-					      const uint64 nonce, const uint8 key[CHACHA20POLY1305_KEYLEN]) {
+					      const uint64 nonce, const uint8 key[CHACHA20POLY1305_KEY_SIZE]) {
   ChaChaState st;
 
   InitializeChaChaState(&st, key, nonce);
@@ -584,8 +584,8 @@ SAFEBUFFERS void chacha20poly1305_encrypt(uint8 *dst, const uint8 *src, const si
 
 SAFEBUFFERS void chacha20poly1305_decrypt_get_mac(uint8 *dst, const uint8 *src, const size_t src_len,
                                       const uint8 *ad, const size_t ad_len,
-                                      const uint64 nonce, const uint8 key[CHACHA20POLY1305_KEYLEN],
-                                      uint8 mac[CHACHA20POLY1305_AUTHTAGLEN]) {
+                                      const uint64 nonce, const uint8 key[CHACHA20POLY1305_KEY_SIZE],
+                                      uint8 mac[CHACHA20POLY1305_AUTHTAG_SIZE]) {
   ChaChaState st;
 
   InitializeChaChaState(&st, key, nonce);
@@ -597,42 +597,42 @@ SAFEBUFFERS void chacha20poly1305_decrypt_get_mac(uint8 *dst, const uint8 *src, 
 
 SAFEBUFFERS bool chacha20poly1305_decrypt(uint8 *dst, const uint8 *src, const size_t src_len,
                               const uint8 *ad, const size_t ad_len,
-                              const uint64 nonce, const uint8 key[CHACHA20POLY1305_KEYLEN]) {
+                              const uint64 nonce, const uint8 key[CHACHA20POLY1305_KEY_SIZE]) {
   uint8 mac[POLY1305_MAC_SIZE];
 
-  if (src_len < CHACHA20POLY1305_AUTHTAGLEN)
+  if (src_len < CHACHA20POLY1305_AUTHTAG_SIZE)
     return false;
-  chacha20poly1305_decrypt_get_mac(dst, src, src_len - CHACHA20POLY1305_AUTHTAGLEN, ad, ad_len, nonce, key, mac);
-  return memcmp_crypto(mac, src + src_len - CHACHA20POLY1305_AUTHTAGLEN, CHACHA20POLY1305_AUTHTAGLEN) == 0;
+  chacha20poly1305_decrypt_get_mac(dst, src, src_len - CHACHA20POLY1305_AUTHTAG_SIZE, ad, ad_len, nonce, key, mac);
+  return memcmp_crypto(mac, src + src_len - CHACHA20POLY1305_AUTHTAG_SIZE, CHACHA20POLY1305_AUTHTAG_SIZE) == 0;
 }
 
 void xchacha20poly1305_encrypt(uint8 *dst, const uint8 *src, const size_t src_len,
 			       const uint8 *ad, const size_t ad_len,
-			       const uint8 nonce[XCHACHA20POLY1305_NONCELEN],
-			       const uint8 key[CHACHA20POLY1305_KEYLEN])
+			       const uint8 nonce[XCHACHA20POLY1305_NONCE_SIZE],
+			       const uint8 key[CHACHA20POLY1305_KEY_SIZE])
 {
-  __aligned(16) uint8 derived_key[CHACHA20POLY1305_KEYLEN];
+  __aligned(16) uint8 derived_key[CHACHA20POLY1305_KEY_SIZE];
 
 	hchacha20(derived_key, nonce, key);
 	chacha20poly1305_encrypt(dst, src, src_len, ad, ad_len, ReadLE64(nonce + 16), derived_key);
-	memzero_crypto(derived_key, CHACHA20POLY1305_KEYLEN);
+	memzero_crypto(derived_key, CHACHA20POLY1305_KEY_SIZE);
 }
 
 bool xchacha20poly1305_decrypt(uint8 *dst, const uint8 *src, const size_t src_len,
 			       const uint8 *ad, const size_t ad_len,
-			       const uint8 nonce[XCHACHA20POLY1305_NONCELEN],
-			       const uint8 key[CHACHA20POLY1305_KEYLEN]) {
+			       const uint8 nonce[XCHACHA20POLY1305_NONCE_SIZE],
+			       const uint8 key[CHACHA20POLY1305_KEY_SIZE]) {
   bool ret;
-  __aligned(16) uint8 derived_key[CHACHA20POLY1305_KEYLEN];
+  __aligned(16) uint8 derived_key[CHACHA20POLY1305_KEY_SIZE];
 
 	hchacha20(derived_key, nonce, key);
 	ret = chacha20poly1305_decrypt(dst, src, src_len, ad, ad_len, ReadLE64(nonce + 16), derived_key);
-	memzero_crypto(derived_key, CHACHA20POLY1305_KEYLEN);
+	memzero_crypto(derived_key, CHACHA20POLY1305_KEY_SIZE);
 
 	return ret;
 }
 
-void chacha20_streaming_init(chacha20_streaming *state, uint8 key[CHACHA20POLY1305_KEYLEN]) {
+void chacha20_streaming_init(chacha20_streaming *state, uint8 key[CHACHA20POLY1305_KEY_SIZE]) {
   state->left = 0;
   uint32 *st = state->state;
   WriteLE64((uint8*)st, 0x3320646e61707865);
