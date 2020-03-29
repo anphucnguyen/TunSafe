@@ -6,6 +6,7 @@
 
 #include "stdafx.h"
 #include "crypto/chacha20poly1305.h"
+#include "crypto/poly1305.h"
 #include "tunsafe_types.h"
 #include "tunsafe_endian.h"
 #include "build_config.h"
@@ -14,16 +15,6 @@
 #include <string.h>
 #include <assert.h>
 #include "util.h"
-
-enum {
-	CHACHA20_IV_SIZE = 16,
-	CHACHA20_KEY_SIZE = 32,
-	CHACHA20_BLOCK_SIZE = 64,
-	POLY1305_BLOCK_SIZE = 16,
-	POLY1305_KEY_SIZE = 32,
-	POLY1305_MAC_SIZE = 16
-};
-
 
 #if defined(OS_MACOSX) || !WITH_AVX512_OPTIMIZATIONS
 #define CHACHA20_WITH_AVX512 0
@@ -236,13 +227,6 @@ SAFEBUFFERS static void chacha20_crypt(struct chacha20_ctx *ctx, uint8 *dst, con
 	}
 }
 
-struct poly1305_ctx {
-	uint8 opaque[24 * sizeof(uint64)];
-	uint32 nonce[4];
-	uint8 data[POLY1305_BLOCK_SIZE];
-	size_t num;
-};
-
 #if !(defined(CONFIG_X86_64) || defined(CONFIG_ARM) || defined(CONFIG_ARM64) || (defined(CONFIG_MIPS) && defined(CONFIG_64BIT))) || !CHACHA20_WITH_ASM
 struct poly1305_internal {
 	uint32 h[5];
@@ -404,7 +388,7 @@ static void poly1305_emit_generic(void *ctx, uint8 mac[16], const uint32 nonce[4
 }
 #endif
 
-SAFEBUFFERS static void poly1305_init(struct poly1305_ctx *ctx, const uint8 key[POLY1305_KEY_SIZE])
+SAFEBUFFERS static void poly1305_init(struct poly1305_desc_ctx *ctx, const uint8 key[POLY1305_KEY_SIZE])
 {
 	ctx->nonce[0] = ReadLE32(&key[16]);
 	ctx->nonce[1] = ReadLE32(&key[20]);
@@ -464,7 +448,7 @@ static inline void poly1305_emit(void *ctx, uint8 mac[16], const uint32 nonce[4]
 #endif  // defined(ARCH_CPU_X86_64)
 } 
 
-SAFEBUFFERS static void poly1305_update(struct poly1305_ctx *ctx, const uint8 *inp, size_t len)
+SAFEBUFFERS static void poly1305_update(struct poly1305_desc_ctx *ctx, const uint8 *inp, size_t len)
 {
 	const size_t num = ctx->num;
 	size_t rem;
@@ -498,7 +482,7 @@ SAFEBUFFERS static void poly1305_update(struct poly1305_ctx *ctx, const uint8 *i
 	ctx->num = rem;
 }
 
-SAFEBUFFERS static void poly1305_finish(struct poly1305_ctx *ctx, uint8 mac[16])
+SAFEBUFFERS static void poly1305_finish(struct poly1305_desc_ctx *ctx, uint8 mac[16])
 {
 	size_t num = ctx->num;
 
@@ -519,7 +503,7 @@ static const uint8 pad0[16] = { 0 };
 
 SAFEBUFFERS static FORCEINLINE void poly1305_getmac(const uint8 *ad, size_t ad_len, const uint8 *src, size_t src_len, const uint8 key[POLY1305_KEY_SIZE], uint8 mac[CHACHA20POLY1305_AUTHTAG_SIZE]) {
   uint64 len[2];
-  struct poly1305_ctx poly1305_state;
+  struct poly1305_desc_ctx poly1305_state;
 
   poly1305_init(&poly1305_state, key);
   poly1305_update(&poly1305_state, ad, ad_len);
@@ -598,7 +582,7 @@ SAFEBUFFERS void chacha20poly1305_decrypt_get_mac(uint8 *dst, const uint8 *src, 
 SAFEBUFFERS bool chacha20poly1305_decrypt(uint8 *dst, const uint8 *src, const size_t src_len,
                               const uint8 *ad, const size_t ad_len,
                               const uint64 nonce, const uint8 key[CHACHA20POLY1305_KEY_SIZE]) {
-  uint8 mac[POLY1305_MAC_SIZE];
+  uint8 mac[POLY1305_DIGEST_SIZE];
 
   if (src_len < CHACHA20POLY1305_AUTHTAG_SIZE)
     return false;
