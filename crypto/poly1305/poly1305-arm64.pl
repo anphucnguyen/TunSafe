@@ -1,5 +1,5 @@
 #! /usr/bin/env perl
-# Copyright 2016 The OpenSSL Project Authors. All Rights Reserved.
+# Copyright 2016-2020 The OpenSSL Project Authors. All Rights Reserved.
 #
 # Licensed under the OpenSSL license (the "License").  You may not use
 # this file except in compliance with the License.  You can obtain a copy
@@ -18,7 +18,7 @@
 #
 # June 2015
 #
-# Numbers are cycles per processed byte with poly1305_blocks_arm alone.
+# Numbers are cycles per processed byte with poly1305_blocks alone.
 #
 #		IALU/gcc-4.9	NEON
 #
@@ -51,18 +51,19 @@ my ($mac,$nonce)=($inp,$len);
 my ($h0,$h1,$h2,$r0,$r1,$s1,$t0,$t1,$d0,$d1,$d2) = map("x$_",(4..14));
 
 $code.=<<___;
+#include "arm_arch.h"
+
 .text
 
 // forward "declarations" are required for Apple
-.globl	poly1305_blocks_arm
-.globl	poly1305_emit_arm
-.globl	poly1305_blocks_neon
-.globl	poly1305_emit_neon
+.extern	OPENSSL_armcap_P
+.globl	poly1305_blocks
+.globl	poly1305_emit
 
-.globl	poly1305_init_arm
-.type	poly1305_init_arm,%function
+.globl	poly1305_init
+.type	poly1305_init,%function
 .align	5
-poly1305_init_arm:
+poly1305_init:
 	cmp	$inp,xzr
 	stp	xzr,xzr,[$ctx]		// zero hash value
 	stp	xzr,xzr,[$ctx,#16]	// [along with is_base2_26]
@@ -70,9 +71,17 @@ poly1305_init_arm:
 	csel	x0,xzr,x0,eq
 	b.eq	.Lno_key
 
+#ifdef	__ILP32__
+	ldrsw	$t1,.LOPENSSL_armcap_P
+#else
+	ldr	$t1,.LOPENSSL_armcap_P
+#endif
+	adr	$t0,.LOPENSSL_armcap_P
+
 	ldp	$r0,$r1,[$inp]		// load key
 	mov	$s1,#0xfffffffc0fffffff
 	movk	$s1,#0x0fff,lsl#48
+	ldr	w17,[$t0,$t1]
 #ifdef	__ARMEB__
 	rev	$r0,$r0			// flip bytes
 	rev	$r1,$r1
@@ -82,13 +91,30 @@ poly1305_init_arm:
 	and	$r1,$r1,$s1		// &=0ffffffc0ffffffc
 	stp	$r0,$r1,[$ctx,#32]	// save key value
 
+	tst	w17,#ARMV7_NEON
+
+	adr	$d0,poly1305_blocks
+	adr	$r0,poly1305_blocks_neon
+	adr	$d1,poly1305_emit
+	adr	$r1,poly1305_emit_neon
+
+	csel	$d0,$d0,$r0,eq
+	csel	$d1,$d1,$r1,eq
+
+#ifdef	__ILP32__
+	stp	w12,w13,[$len]
+#else
+	stp	$d0,$d1,[$len]
+#endif
+
+	mov	x0,#1
 .Lno_key:
 	ret
-.size	poly1305_init_arm,.-poly1305_init_arm
+.size	poly1305_init,.-poly1305_init
 
-.type	poly1305_blocks_arm,%function
+.type	poly1305_blocks,%function
 .align	5
-poly1305_blocks_arm:
+poly1305_blocks:
 	ands	$len,$len,#-16
 	b.eq	.Lno_data
 
@@ -148,11 +174,11 @@ poly1305_blocks_arm:
 
 .Lno_data:
 	ret
-.size	poly1305_blocks_arm,.-poly1305_blocks_arm
+.size	poly1305_blocks,.-poly1305_blocks
 
-.type	poly1305_emit_arm,%function
+.type	poly1305_emit,%function
 .align	5
-poly1305_emit_arm:
+poly1305_emit:
 	ldp	$h0,$h1,[$ctx]		// load hash base 2^64
 	ldr	$h2,[$ctx,#16]
 	ldp	$t0,$t1,[$nonce]	// load nonce
@@ -179,7 +205,7 @@ poly1305_emit_arm:
 	stp	$h0,$h1,[$mac]		// write result
 
 	ret
-.size	poly1305_emit_arm,.-poly1305_emit_arm
+.size	poly1305_emit,.-poly1305_emit
 ___
 my ($R0,$R1,$S1,$R2,$S2,$R3,$S3,$R4,$S4) = map("v$_.4s",(0..8));
 my ($IN01_0,$IN01_1,$IN01_2,$IN01_3,$IN01_4) = map("v$_.2s",(9..13));
@@ -262,9 +288,10 @@ poly1305_blocks_neon:
 	ldr	$is_base2_26,[$ctx,#24]
 	cmp	$len,#128
 	b.hs	.Lblocks_neon
-	cbz	$is_base2_26,poly1305_blocks_arm
+	cbz	$is_base2_26,poly1305_blocks
 
 .Lblocks_neon:
+	.inst	0xd503233f		// paciasp
 	stp	x29,x30,[sp,#-80]!
 	add	x29,sp,#0
 
@@ -833,6 +860,7 @@ poly1305_blocks_neon:
 	st1	{$ACC4}[0],[$ctx]
 
 .Lno_data_neon:
+	.inst	0xd50323bf		// autiasp
 	ldr	x29,[sp],#80
 	ret
 .size	poly1305_blocks_neon,.-poly1305_blocks_neon
@@ -841,7 +869,7 @@ poly1305_blocks_neon:
 .align	5
 poly1305_emit_neon:
 	ldr	$is_base2_26,[$ctx,#24]
-	cbz	$is_base2_26,poly1305_emit_arm
+	cbz	$is_base2_26,poly1305_emit
 
 	ldp	w10,w11,[$ctx]		// load hash value base 2^26
 	ldp	w12,w13,[$ctx,#8]
@@ -892,6 +920,14 @@ poly1305_emit_neon:
 .align	5
 .Lzeros:
 .long	0,0,0,0,0,0,0,0
+.LOPENSSL_armcap_P:
+#ifdef	__ILP32__
+.long	OPENSSL_armcap_P-.
+#else
+.quad	OPENSSL_armcap_P-.
+#endif
+.asciz	"Poly1305 for ARMv8, CRYPTOGAMS by <appro\@openssl.org>"
+.align	2
 ___
 
 foreach (split("\n",$code)) {
@@ -907,4 +943,4 @@ foreach (split("\n",$code)) {
 
 	print $_,"\n";
 }
-close STDOUT;
+close STDOUT or die "error closing STDOUT: $!";

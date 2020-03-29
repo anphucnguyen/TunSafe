@@ -1,5 +1,5 @@
 #! /usr/bin/env perl
-# Copyright 2005-2016 The OpenSSL Project Authors. All Rights Reserved.
+# Copyright 2005-2020 The OpenSSL Project Authors. All Rights Reserved.
 #
 # Licensed under the OpenSSL license (the "License").  You may not use
 # this file except in compliance with the License.  You can obtain a copy
@@ -154,8 +154,7 @@ my %globals;
 		    $epilogue = "movq	8(%rsp),%rdi\n\t" .
 				"movq	16(%rsp),%rsi\n\t";
 		}
-	    	#$epilogue . ".byte	0xf3,0xc3";
-	    	$epilogue . "ret";
+			$epilogue . ".byte	0xf3,0xc3";
 	    } elsif ($self->{op} eq "call" && !$elf && $current_segment eq ".init") {
 		".p2align\t3\n\t.quad";
 	    } else {
@@ -169,7 +168,7 @@ my %globals;
 		    $self->{op} = "mov	rdi,QWORD$PTR\[8+rsp\]\t;WIN64 epilogue\n\t".
 				  "mov	rsi,QWORD$PTR\[16+rsp\]\n\t";
 	    	}
-		$self->{op} .= "ret";
+		$self->{op} .= "DB\t0F3h,0C3h\t\t;repret";
 	    } elsif ($self->{op} =~ /^(pop|push)f/) {
 		$self->{op} .= $self->{sz};
 	    } elsif ($self->{op} eq "call" && $current_segment eq ".CRT\$XCU") {
@@ -542,6 +541,7 @@ my %globals;
 	);
 
     my ($cfa_reg, $cfa_rsp);
+    my @cfa_stack;
 
     # [us]leb128 format is variable-length integer representation base
     # 2^128, with most significant bit of each byte being 0 denoting
@@ -649,7 +649,13 @@ my %globals;
 	    # why it starts with -8. Recall that CFA is top of caller's
 	    # stack...
 	    /startproc/	&& do {	($cfa_reg, $cfa_rsp) = ("%rsp", -8); last; };
-	    /endproc/	&& do {	($cfa_reg, $cfa_rsp) = ("%rsp",  0); last; };
+	    /endproc/	&& do {	($cfa_reg, $cfa_rsp) = ("%rsp",  0);
+				# .cfi_remember_state directives that are not
+				# matched with .cfi_restore_state are
+				# unnecessary.
+				die "unpaired .cfi_remember_state" if (@cfa_stack);
+				last;
+			      };
 	    /def_cfa_register/
 			&& do {	$cfa_reg = $$line; last; };
 	    /def_cfa_offset/
@@ -687,6 +693,14 @@ my %globals;
 				$self->{value} = ".cfi_escape\t" .
 					join(",", map(sprintf("0x%02x", $_),
 						      cfa_expression($$line)));
+				last;
+			      };
+	    /remember_state/
+			&& do {	push @cfa_stack, [$cfa_reg, $cfa_rsp];
+				last;
+			      };
+	    /restore_state/
+			&& do {	($cfa_reg, $cfa_rsp) = @{pop @cfa_stack};
 				last;
 			      };
 	    }
@@ -878,7 +892,7 @@ my %globals;
 							$var=~s/^(0b[0-1]+)/oct($1)/eig;
 							$var=~s/^0x([0-9a-f]+)/0$1h/ig if ($masm);
 							if ($sz eq "D" && ($current_segment=~/.[px]data/ || $dir eq ".rva"))
-							{ $var=~s/([_a-z\$\@][_a-z0-9\$\@]*)/$nasm?"$1 wrt ..imagebase":"imagerel $1"/egi; }
+							{ $var=~s/^([_a-z\$\@][_a-z0-9\$\@]*)/$nasm?"$1 wrt ..imagebase":"imagerel $1"/egi; }
 							$var;
 						    };
 
@@ -1003,7 +1017,7 @@ my $pinsrd = sub {
 };
 
 my $pshufb = sub {
-    if (0 && shift =~ /%xmm([0-9]+),\s*%xmm([0-9]+)/) {
+    if (shift =~ /%xmm([0-9]+),\s*%xmm([0-9]+)/) {
       my @opcode=(0x66);
 	rex(\@opcode,$2,$1);
 	push @opcode,0x0f,0x38,0x00;
@@ -1202,7 +1216,7 @@ while(defined(my $line=<>)) {
 print "\n$current_segment\tENDS\n"	if ($current_segment && $masm);
 print "END\n"				if ($masm);
 
-close STDOUT;
+close STDOUT or die "error closing STDOUT: $!";
 
 #################################################
 # Cross-reference x86_64 ABI "card"
